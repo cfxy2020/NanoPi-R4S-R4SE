@@ -93,3 +93,10 @@ jobs:
     - name: Start SSH via tmate
       uses: P3TERX/ssh2actions@main      
     
+    - name: Upload .config
+      uses: actions/upload-artifact@main
+      with:
+        name: OpenWrt_config
+        path: openwrt/.config
+        
+        
