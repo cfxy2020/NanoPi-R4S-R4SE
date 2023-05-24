@@ -11,6 +11,12 @@ name: NanoPi-R4S-全插件
 on:
   repository_dispatch:
   workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+
   #schedule:
     #- cron: 0 17 * * *
   # watch:
@@ -27,18 +33,27 @@ env:
 
 jobs:
   Build:
+    # runs-on: self-hosted
+    # outputs:
+    #   OPENWRTROOT: ${{ steps.update.outputs.OPENWRTROOT }}
+    #   PLATFORM: ${{ steps.compile.outputs.PLATFORM }}
+    #   TARGET: ${{ steps.compile.outputs.TARGET }}
+    #   SUBTARGET: ${{ steps.compile.outputs.SUBTARGET }}
+    #   FIRMWARE: ${{ steps.compile.outputs.FIRMWARE }}
+    #   GENERATE_STATUS: ${{ steps.generate.outputs.GENERATE_STATUS }}
+
     runs-on: ubuntu-20.04
-    
+
     steps:
     - name: Checkout
       uses: actions/checkout@v3
 
-
     - name: Free space
       run: |
-        echo "Listing 100 largest packages"
-        dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100
         df -h
+
+        echo "Listing 100 largest packages"
+        dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100        
         echo "Removing large packages"
         # sudo apt-get remove -y '^ghc-8.*'
         sudo apt-get remove -y '^dotnet-.*'
@@ -46,20 +61,19 @@ jobs:
         sudo apt-get remove -y 'php.*'
         sudo apt-get remove -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel
         sudo apt-get autoremove -y
+        sudo apt-get clean
+        df -h
+
+        echo "Removing large directories"
+        # deleting 15GB
+        # rm -rf /usr/share/dotnet/
 
         # sudo swapoff /swapfile
         sudo swapoff -a
         sudo rm -f /swapfile
         sudo rm -rf /swapfile /usr/share/dotnet /usr/local/lib/android /opt/ghc
 
-        sudo apt-get clean
-
         df -h
-        echo "Removing large directories"
-        # deleting 15GB
-        rm -rf /usr/share/dotnet/
-        df -h
-
 
     - name: Initialization Environment
       env:
@@ -83,17 +97,20 @@ jobs:
         [ -f /etc/issue ] && cat /etc/issue
         ulimit -a
         
-        
     - name: Clone Source Code
       run: |
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
+      
+      # 建立软连接
+      # ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
         cd openwrt
         
     - name: Update Feeds
       id: update
       run: |
         cd openwrt
+      # ~/work/NanoPi-R4S-R4SE/NanoPi-R4S-R4SE/openwrt
         echo "OPENWRTROOT=$PWD" >> $GITHUB_ENV
         echo "OPENWRTROOT=$PWD" >> $GITHUB_OUTPUT
         mkdir customfeeds
@@ -110,81 +127,98 @@ jobs:
     - name: Load Custom Configuration
       run: |
         [ -e files ] && mv files $OPENWRTROOT/files
+      # 将lean.config重命名为.config
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE $OPENWRTROOT/.config
         chmod +x scripts/*.sh
         cd $OPENWRTROOT
         ../$DIY_SH
         ../scripts/preset-clash-core.sh arm64
         ../scripts/preset-terminal-tools.sh
-        make defconfig
-        
-#     - name: Start SSH via tmate
-#       uses: P3TERX/ssh2actions@main      
-    
-#     - name: Upload .config
-#       uses: actions/upload-artifact@main
-#       with:
-#         name: OpenWrt_config
-#         path: openwrt/.config
-        
+
+# SSH连接，自选插件，得到新生成的.config文件
+# SSH远程连接Github Actions后，输入命令执行
+    - name: Start SSH via tmate
+      uses: P3TERX/ssh2actions@main
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      # 进入后按Ctrl+C，输入以下命令，开始配置
+      # cd openwrt
+      # make menuconfig
+      # 退出配置
+      # touch /tmp/continue
+ 
+    - name: Upload .config
+      uses: actions/upload-artifact@main
+      if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
+      with:
+        name: OpenWrt_config
+        path: openwrt/.config
 
     - name: Download Package
       id: package
       run: |
         cd $OPENWRTROOT
+        make defconfig
+      # 显示.config内容
         cat .config
-        make download -j8
+
+        make download -j8 V=s
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
   
-    - name: Compile Packages
-      id: compile
-      run: |
-        cd $OPENWRTROOT
-        echo -e "$(nproc) thread compile"
-        make tools/compile -j$(nproc) || make tools/compile -j$(nproc)
-        make toolchain/compile -j$(nproc) || make toolchain/compile -j$(nproc)
-        make target/compile -j$(nproc) || make target/compile -j$(nproc) IGNORE_ERRORS=1
-        make diffconfig
-        make package/compile -j$(nproc) IGNORE_ERRORS=1 || make package/compile -j$(nproc) IGNORE_ERRORS=1
-        make package/index
+    # - name: Compile Packages
+    #   id: compile
+    #   run: |
+    #     cd $OPENWRTROOT
+    #     echo -e "$(nproc) thread compile"
 
-        cd $OPENWRTROOT/bin/packages/*
-        PLATFORM=$(basename `pwd`)
-        echo "PLATFORM=$PLATFORM" >> $GITHUB_ENV
-        echo "PLATFORM=$PLATFORM" >> $GITHUB_OUTPUT
+    #     make tools/compile -j$(nproc) || make tools/compile -j$(nproc)
+    #     make toolchain/compile -j$(nproc) || make toolchain/compile -j$(nproc)
+    #     make target/compile -j$(nproc) || make target/compile -j$(nproc) IGNORE_ERRORS=1
+    #     make diffconfig
+    #     make package/compile -j$(nproc) IGNORE_ERRORS=1 || make package/compile -j$(nproc) IGNORE_ERRORS=1
+    #     make package/index
 
-        cd $OPENWRTROOT/bin/targets/*
-        TARGET=$(basename `pwd`)
-        echo "TARGET=$TARGET" >> $GITHUB_ENV
-        echo "TARGET=$TARGET" >> $GITHUB_OUTPUT
+    #     cd $OPENWRTROOT/bin/packages/*
+    #     PLATFORM=$(basename `pwd`)
+    #     echo "PLATFORM=$PLATFORM" >> $GITHUB_ENV
+    #     echo "PLATFORM=$PLATFORM" >> $GITHUB_OUTPUT
 
-        cd *
-        SUBTARGET=$(basename `pwd`)
-        echo "SUBTARGET=$SUBTARGET" >> $GITHUB_ENV
-        echo "SUBTARGET=$SUBTARGET" >> $GITHUB_OUTPUT
+    #     cd $OPENWRTROOT/bin/targets/*
+    #     TARGET=$(basename `pwd`)
+    #     echo "TARGET=$TARGET" >> $GITHUB_ENV
+    #     echo "TARGET=$TARGET" >> $GITHUB_OUTPUT
 
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "FIRMWARE=$PWD" >> $GITHUB_OUTPUT
+    #     cd *
+    #     SUBTARGET=$(basename `pwd`)
+    #     echo "SUBTARGET=$SUBTARGET" >> $GITHUB_ENV
+    #     echo "SUBTARGET=$SUBTARGET" >> $GITHUB_OUTPUT
 
-        echo "COMPILE_STATUS=success" >> $GITHUB_OUTPUT
+    #     echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+    #     echo "FIRMWARE=$PWD" >> $GITHUB_OUTPUT
+
+    #     echo "COMPILE_STATUS=success" >> $GITHUB_OUTPUT
         
     - name: Generate Firmware
-      if: steps.compile.outputs.COMPILE_STATUS == 'success'
+      # if: steps.compile.outputs.COMPILE_STATUS == 'success'
       id: generate
       run: |
-        cd configs/opkg
-        sed -i "s/subtarget/$SUBTARGET/g" distfeeds*.conf
-        sed -i "s/target\//$TARGET\//g" distfeeds*.conf
-        sed -i "s/platform/$PLATFORM/g" distfeeds*.conf
+
+      # cd configs/opkg
+      # sed -i "s/subtarget/$SUBTARGET/g" distfeeds*.conf
+      # sed -i "s/target\//$TARGET\//g" distfeeds*.conf
+      # sed -i "s/platform/$PLATFORM/g" distfeeds*.conf
 
         cd $OPENWRTROOT
+
         mkdir -p files/etc/uci-defaults/
         cp ../scripts/init-settings.sh files/etc/uci-defaults/99-init-settings
+
         mkdir -p files/etc/opkg
         cp ../configs/opkg/distfeeds-packages-server.conf files/etc/opkg/distfeeds.conf.server
+
         mkdir -p files/etc/opkg/keys
         cp ../configs/opkg/1035ac73cc4e59e3 files/etc/opkg/keys/1035ac73cc4e59e3
+
         if "$KMODS_IN_FIRMWARE" = 'true'
         then
             mkdir -p files/www/snapshots
@@ -195,30 +229,40 @@ jobs:
         fi
         cp files/etc/opkg/distfeeds.conf.server files/etc/opkg/distfeeds.conf.mirror
         sed -i "s/http:\/\/192.168.123.100:2345\/snapshots/https:\/\/openwrt.cc\/snapshots\/$(date +"%Y-%m-%d")\/lean/g" files/etc/opkg/distfeeds.conf.mirror
-        make package/install -j$(nproc) || make package/install -j1 V=s
-        make target/install -j$(nproc) || make target/install -j1 V=s
+
+      # make package/install -j$(nproc) || make package/install -j1 V=s
+      # make target/install -j$(nproc) || make target/install -j1 V=s
+        make -j$(nproc) V=s || make -j1 V=s
+        
         pushd bin/targets/rockchip/armv8
         # rm -rf **ext4**
-        rm -rf openwrt-rockchip-armv8.manifest
+        # rm -rf openwrt-rockchip-armv8.manifest
         rm -rf openwrt-rockchip-armv8-rootfs.tar.gz
-        rm -rf config.buildinfo
-        rm -rf packages-server.zip
+        # rm -rf config.buildinfo
+        # rm -rf packages-server.zip
 
-        
+        # 文件重命名
         # mv openwrt-rockchip-armv8-friendlyarm_nanopi-r4s-ext4-sysupgrade.img.gz full-friendlyarm_nanopi-r4s-ext4-sysupgrade.img.gz
-        rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r4s-ext4-sysupgrade.img.gz
-
-        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r4se-ext4-sysupgrade.img.gz full-friendlyarm_nanopi-r4se-ext4-sysupgrade.img.gz
-        
         # mv openwrt-rockchip-armv8-friendlyarm_nanopi-r4s-squashfs-sysupgrade.img.gz full-friendlyarm_nanopi-r4s-squashfs-sysupgrade.img.gz
+        rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r4s-ext4-sysupgrade.img.gz
         rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r4s-squashfs-sysupgrade.img.gz
 
-        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r4se-squashfs-sysupgrade.img.gz full-friendlyarm_nanopi-r4se-squashfs-sysupgrade.img.gz
+        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r4se-ext4-sysupgrade.img.gz full-openwrt-rockchip-armv8-friendlyarm_nanopi-r4se-ext4-sysupgrade.img.gz
+        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r4se-squashfs-sysupgrade.img.gz full-openwrt-rockchip-armv8-friendlyarm_nanopi-r4se-squashfs-sysupgrade.img.gz
         popd
 
         make checksum
         mv bin/targets/rockchip/armv8/sha256sums bin/targets/rockchip/armv8/full-sha256sums
         echo "GENERATE_STATUS=success" >> $GITHUB_OUTPUT
+
+        # 获取设备名称
+        # grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        # [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        # echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: Check space usage
+      if: (!cancelled())
+      run: df -hT
 
     - name: Organize bin files
       id: organize_bin
@@ -234,4 +278,51 @@ jobs:
       if: steps.organize_bin.outputs.status == 'success' && !cancelled() && !failure()
       with:
         name: OpenWrt_bin_${{ env.FILE_DATE }}
-        path: $OPENWRTROOT/bin        
+        path: $OPENWRTROOT/bin
+
+        
+    # - name: Generate release tag
+    #   id: tag
+    #   if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+    #   run: |
+    #       echo "release_tag=$(date +"%Y.%m.%d")-Lean1" >> $GITHUB_OUTPUT
+    #       echo "release_date=$(date +"%Y.%m.%d")" >> $GITHUB_OUTPUT
+    #       touch release.txt
+    #       echo "后台地址：192.168.6.1
+    #             full   = 全插件
+    #             docker = 带docker
+    #             slim   = 精简版
+    #             beggar = 乞丐版" >> release.txt
+    #       echo "status=success" >> $GITHUB_OUTPUT
+          
+    # - name: Upload firmware to release
+    #   uses: softprops/action-gh-release@v1
+    #   if: steps.tag.outputs.status == 'success' && !cancelled()
+    #   env:
+    #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    #   with:
+    #       name: ${{ steps.tag.outputs.release_date }} NanoPi-R4S-R4SE-linux.5.4_固件下载
+    #       tag_name: ${{ steps.tag.outputs.release_tag }}
+    #       body_path: release.txt
+    #       files: ${{ env.FIRMWARE }}/*
+
+    # - name: Delete workflow runs
+    #   uses: Mattraks/delete-workflow-runs@v2
+    #   with:
+    #       retain_days: 1
+    #       keep_minimum_runs: 1
+
+    # - name: Remove old Releases
+    #   uses: dev-drprasad/delete-older-releases@v0.2.1
+    #   if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+    #   with:
+    #       keep_latest: 20
+    #       delete_tags: true
+    #   env:
+    #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # - name: Delete Artifacts
+    #   uses: geekyeggo/delete-artifact@v2
+    #   with:
+    #      name: |
+    #         bin-archive
