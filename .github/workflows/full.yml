@@ -11,11 +11,11 @@ name: NanoPi-R4S-全插件
 on:
   repository_dispatch:
   workflow_dispatch:
-#     inputs:
-#       ssh:
-#         description: 'SSH connection to Actions'
-#         required: false
-#         default: 'false'
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
 
   #schedule:
     #- cron: 0 17 * * *
@@ -96,21 +96,21 @@ jobs:
         [ -f /etc/issue.net ] && cat /etc/issue.net
         [ -f /etc/issue ] && cat /etc/issue
         ulimit -a
-        
+
     - name: Clone Source Code
       run: |
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
       
-      # 建立软连接
-      # ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+        # 建立软连接
+        # ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
         cd openwrt
         
     - name: Update Feeds
       id: update
       run: |
         cd openwrt
-      # ~/work/NanoPi-R4S-R4SE/NanoPi-R4S-R4SE/openwrt
+        # ~/work/NanoPi-R4S-R4SE/NanoPi-R4S-R4SE/openwrt
         echo "OPENWRTROOT=$PWD" >> $GITHUB_ENV
         echo "OPENWRTROOT=$PWD" >> $GITHUB_OUTPUT
         mkdir customfeeds
@@ -127,7 +127,7 @@ jobs:
     - name: Load Custom Configuration
       run: |
         [ -e files ] && mv files $OPENWRTROOT/files
-      # 将lean.config重命名为.config
+        # 将lean.config重命名为.config
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE $OPENWRTROOT/.config
         chmod +x scripts/*.sh
         cd $OPENWRTROOT
@@ -158,7 +158,7 @@ jobs:
       run: |
         cd $OPENWRTROOT
         make defconfig
-      # 显示.config内容
+        # 显示.config内容
         cat .config
 
         make download -j8 V=s
@@ -203,10 +203,10 @@ jobs:
       id: generate
       run: |
 
-      # cd configs/opkg
-      # sed -i "s/subtarget/$SUBTARGET/g" distfeeds*.conf
-      # sed -i "s/target\//$TARGET\//g" distfeeds*.conf
-      # sed -i "s/platform/$PLATFORM/g" distfeeds*.conf
+        # cd configs/opkg
+        # sed -i "s/subtarget/$SUBTARGET/g" distfeeds*.conf
+        # sed -i "s/target\//$TARGET\//g" distfeeds*.conf
+        # sed -i "s/platform/$PLATFORM/g" distfeeds*.conf
 
         cd $OPENWRTROOT
 
@@ -230,8 +230,8 @@ jobs:
         cp files/etc/opkg/distfeeds.conf.server files/etc/opkg/distfeeds.conf.mirror
         sed -i "s/http:\/\/192.168.123.100:2345\/snapshots/https:\/\/openwrt.cc\/snapshots\/$(date +"%Y-%m-%d")\/lean/g" files/etc/opkg/distfeeds.conf.mirror
 
-      # make package/install -j$(nproc) || make package/install -j1 V=s
-      # make target/install -j$(nproc) || make target/install -j1 V=s
+        # make package/install -j$(nproc) || make package/install -j1 V=s
+        # make target/install -j$(nproc) || make target/install -j1 V=s
         make -j$(nproc) V=s || make -j1 V=s
         
         pushd bin/targets/rockchip/armv8
@@ -280,7 +280,7 @@ jobs:
         name: OpenWrt_bin_${{ env.FILE_DATE }}
         path: $OPENWRTROOT/bin
 
-        
+
     # - name: Generate release tag
     #   id: tag
     #   if: env.UPLOAD_RELEASE == 'true' && !cancelled()
